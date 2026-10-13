@@ -18,7 +18,7 @@ def ferma_theorem(easy=True):  # NIA
         s.add(y < z)
         s.add(x * x + y * y == z * z)
     else:
-        s.add(x * x * x + y * y * y == z * z * z) # should be unsat, but diverges
+        s.add(x * x * x + y * y * y == z * z * z)  # should be unsat, but diverges
     print(s.to_smt2())
     while s.check() == sat:
         model = s.model()
@@ -77,7 +77,16 @@ def is_power_of_two():
         :param SIZE: width of the bit vector `x`
         :returns вердикт решателя (результат `check()`) на запросе, невыполнимость которого доказывает утверждение
         """
-        return
+        solver = Solver()
+        x = BitVec("x", SIZE)
+        cond = And((x != 0), (x & (x - 1)) == 0)
+        query = Or(*[
+            x == (BitVecVal(1, SIZE) << power)
+            for power in range(0, SIZE)
+        ])
+        solver.add(Xor(cond, query))
+        return solver.check()
+
     for i in range(1, 20):
         assert attempt(i) == unsat, f"утверждение не доказано для SIZE = {i}"
 
@@ -86,6 +95,7 @@ def bithack():
     def is_identity(a: int, b: int, BIT_WIDTH: int) -> bool:
         mask = (1 << BIT_WIDTH) - 1
         return all((((x + a) ^ b) - a) & mask == (((x - a) ^ b) + a) & mask for x in range(1 << BIT_WIDTH))
+
     def attempt(BIT_WIDTH: int) -> Set[Tuple[int, int]]:
         """
         TODO: 1 point
@@ -95,14 +105,41 @@ def bithack():
         :param BIT_WIDTH: width of bit vectors a, b, x
         :return set of pairs of `a` and `b`
         """
-        return {(3, 3)}
+        a, b = BitVecs("a b", BIT_WIDTH)
+        solver = Solver()
+        for x_int in range(0, 2 ** (BIT_WIDTH - 1)):
+            x_val = BitVecVal(x_int, BIT_WIDTH)
+            solver.add((((x_val + a) ^ b) - a) == (((x_val - a) ^ b) + a))
+        findings: Set[Tuple[int, int]] = set()
+        while True:
+            res = solver.check()
+            assert res != unknown
+            if res == sat:
+                mod = solver.model()
+                a_found = mod.eval(a, model_completion=True).as_long()
+                b_found = mod.eval(b, model_completion=True).as_long()
+                findings.add((a_found, b_found))
+                solver.add(
+                    Or(
+                        a != BitVecVal(a_found, BIT_WIDTH),
+                        b != BitVecVal(b_found, BIT_WIDTH)
+                    )
+                )
+            if res == unsat:
+                return findings
+
     results = {width: attempt(width) for width in range(2, 6)}
     for width, pairs in results.items():
         for a, b in pairs:
             assert 0 <= a < 1 << width and 0 <= b < 1 << width, f"({a}, {b}) does not fit into {width} bits"
             assert is_identity(a, b, width), f"not an identity for a = {a}, b = {b}, BIT_WIDTH = {width}"
-    assert results[2] == {(3, 3), (0, 0), (1, 1), (2, 0), (2, 2), (2, 3), (0, 3), (0, 1), (0, 2), (1, 0), (3, 0), (3, 1), (2, 1), (1, 2), (1, 3), (3, 2)}
-    assert results[3] == {(4, 0), (3, 4), (4, 3), (3, 1), (5, 4), (4, 6), (5, 1), (0, 2), (0, 5), (2, 2), (1, 0), (2, 5), (7, 4), (6, 2), (7, 1), (6, 5), (4, 2), (3, 0), (4, 5), (5, 0), (0, 1), (0, 7), (2, 4), (0, 4), (2, 1), (2, 7), (1, 5), (6, 1), (7, 0), (6, 4), (6, 7), (4, 1), (4, 7), (3, 5), (4, 4), (5, 5), (0, 0), (1, 1), (0, 3), (2, 0), (1, 4), (0, 6), (2, 3), (2, 6), (6, 0), (6, 6), (7, 5), (6, 3)}
+    assert results[2] == {(3, 3), (0, 0), (1, 1), (2, 0), (2, 2), (2, 3), (0, 3), (0, 1), (0, 2), (1, 0), (3, 0),
+                          (3, 1), (2, 1), (1, 2), (1, 3), (3, 2)}
+    assert results[3] == {(4, 0), (3, 4), (4, 3), (3, 1), (5, 4), (4, 6), (5, 1), (0, 2), (0, 5), (2, 2), (1, 0),
+                          (2, 5), (7, 4), (6, 2), (7, 1), (6, 5), (4, 2), (3, 0), (4, 5), (5, 0), (0, 1), (0, 7),
+                          (2, 4), (0, 4), (2, 1), (2, 7), (1, 5), (6, 1), (7, 0), (6, 4), (6, 7), (4, 1), (4, 7),
+                          (3, 5), (4, 4), (5, 5), (0, 0), (1, 1), (0, 3), (2, 0), (1, 4), (0, 6), (2, 3), (2, 6),
+                          (6, 0), (6, 6), (7, 5), (6, 3)}
     assert len(results[4]) == 128
     assert len(results[5]) == 320
 
@@ -113,6 +150,7 @@ def queens():
                 and set(xs) == set(range(1, size + 1))
                 and len({x - i for i, x in enumerate(xs)}) == size
                 and len({x + i for i, x in enumerate(xs)}) == size)
+
     def attempt(SIZE: int) -> List[int]:
         """
         TODO: 3 points
@@ -127,7 +165,20 @@ def queens():
             Пример: [4, 2, 8, 6, 1, 3, 5, 7]
         """
         solver = SolverFor("QF_LIA")
-        return [4, 2, 8, 6, 1, 3, 5, 7]
+        rows = range(SIZE)
+        answers = [Int(f"queen_of_row_{i}") for i in rows]
+        for i in rows:
+            answer = answers[i]
+            solver.add(And(0 < answer, answer <= SIZE))
+        solver.add(Distinct(*answers))
+        solver.add(Distinct(*[answers[i] - i for i in rows]))
+        solver.add(Distinct(*[answers[i] + i for i in rows]))
+        res = solver.check()
+        assert res != unknown, f"must be sat or unsat, got {res = }"
+        if res == unsat: return []
+        m = solver.model()
+        return [m.eval(answers[i]).as_long() for i in rows]
+
     for s in range(8, 40):
         xs = attempt(s)
         print(xs)
@@ -136,7 +187,7 @@ def queens():
 
 # Пример: проверка сортированности массива (теория A)
 def sortedness():
-    array_sort =  ArraySort(IntSort(), IntSort())
+    array_sort = ArraySort(IntSort(), IntSort())
     sorted = RecFunction("sorted", array_sort, BoolSort())
     arr = Const("arr", array_sort)
     i, j = Ints("i j")
@@ -181,12 +232,15 @@ def array_theory_proof():
     Эти проверки уже закодированы для вас в функции check, вам нужно только придумать и записать литералы F и Fs.
     Замечание: это упражнение фактически показывает, что теория массивов невыпукла
     """
+
     def is_literal(f):
         def has_formula_inside(t):
             return any(is_bool(c) or has_formula_inside(c) for c in t.children())
+
         if is_not(f):
             f = f.arg(0)
         return is_bool(f) and is_app(f) and not has_formula_inside(f) and not (is_distinct(f) and f.num_args() > 2)
+
     def check(F, Fs):
         assert len(Fs) >= 2
         for lit in [F, *Fs]:
@@ -201,8 +255,14 @@ def array_theory_proof():
             solver.add(Not(Implies(F, Fi)))
             assert solver.check() == sat
             solver.pop()
-    F = None
-    Fs = []
+
+    arr1 = Array("arr1", IntSort(), IntSort())
+    i, v, j = Ints("i v j")
+    F = Select(Store(arr1, i, v), i) == v
+    Fs = [
+        Select(Store(arr1, i, v), j) == v,
+        Select(Store(arr1, i, v), j) != v,
+    ]
     check(F, Fs)
 
 
@@ -212,6 +272,7 @@ def subtyping():
         cs = [Const(c, Sort) for c in range(card)]
         x = Const(card, Sort)
         return Exists(cs, ForAll(x, Or([x == c for c in cs])))
+
     Type = DeclareSort('Type')
     subtype = Function('subtype', Type, Type, BoolSort())
     exception = Const('exception', Type)
@@ -257,20 +318,36 @@ def groups():
     Замечание: когда решатель `solver` (см. verdict) вернул unsat, можно посмотреть на произведённое им доказательство: print(solver.proof().sexpr())
     (Для этого в начало решения вставьте `set_param(proof=True)`)
     """
+
     def check(axioms, theorems):
         assert len(axioms) > 0
         assert len(theorems) == 4
+
         def verdict(formulas):
             solver = Solver()
             solver.set("rlimit", 5000000)
             solver.add(formulas)
             return solver.check()
+
         assert verdict(axioms) != unsat, "аксиомы противоречивы"
         for theorem in theorems:
             assert verdict([Not(theorem)]) != unsat, f"{theorem} верно и без аксиом группы"
             assert verdict([*axioms, Not(theorem)]) == unsat, f"{theorem} не выведено из аксиом"
-    axioms = []
-    theorems = []
+    G = DeclareSort("G")
+    op = Function("op", G, G, G)
+    inv = Function("inv", G, G)
+    a, b, c, neutral = Consts("a b c neutral", G)
+    axioms = [
+        ForAll([a, b, c], op(op(a, b), c) == op(a, op(b, c))),
+        ForAll(a, And(op(neutral, a) == a, op(a, neutral) == a)),
+        ForAll(a, And(op(a, inv(a)) == neutral, op(inv(a), a) == neutral)),
+    ]
+    theorems = [
+        ForAll([a, b], inv(op(a, b)) == op(inv(b), inv(a))),
+        ForAll([a, b], Implies(inv(a) == inv(b), a == b)),
+        ForAll(a, inv(inv(a)) == a),
+        inv(neutral) == neutral,
+    ]
     check(axioms, theorems)
 
 
